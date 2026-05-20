@@ -559,6 +559,46 @@ class AutoWorkflow:
         self.update_status("Step 3 ✓", "#00ff41")
         return True
     
+    def cleanup_on_error(self):
+        """
+        Close any open dialogs (Save As, Export, confirmations)
+        if an error occurs or workflow is aborted.
+        """
+        print("[AUTO] Cleaning up and closing open dialogs due to error/abort...")
+        
+        # Hide the progress bar
+        try:
+            self.gui.progress_signal.emit(0)
+        except:
+            pass
+
+        if not HAS_WIN32:
+            # Fallback: send escape key a couple of times
+            keyboard.send('esc')
+            time.sleep(0.1)
+            keyboard.send('esc')
+            return
+
+        # List of dialog window titles/keywords we want to close
+        keywords = ["save as", "lưu", "save", "export", "machine", "xuất", "confirm", "xác nhận", "already exists", "replace"]
+        
+        def enum_and_close(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                # Check if title matches any keyword
+                if any(kw in title.lower() for kw in keywords):
+                    # Exclude the main tool window itself
+                    if "TX Embroider" not in title and "TX EMBROIDER" not in title:
+                        print(f"[CLEANUP] Closing dialog: {title}")
+                        # Send IDCANCEL (2) or WM_CLOSE
+                        win32gui.PostMessage(hwnd, win32con.WM_COMMAND, 2, 0)
+                        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        
+        # Try to close dialogs a few times with small delays to catch any confirmation boxes too
+        for _ in range(3):
+            win32gui.EnumWindows(enum_and_close, None)
+            time.sleep(0.15)
+     
     def run(self):
         """
         Run full automated workflow
@@ -579,37 +619,45 @@ class AutoWorkflow:
         # Step 0: Prepare data from TX tool
         if not self.step0_prepare_data():
             self.update_status("FAIL @ 0", "#ff0000")
+            self.cleanup_on_error()
             return False
         
         if self.abort_flag:
+            self.cleanup_on_error()
             return False
         time.sleep(0.2)
         
         # Step 3: Screenshot (NOW RUN FIRST)
         if not self.step3_screenshot():
             self.update_status("FAIL @ 3", "#ff0000")
+            self.cleanup_on_error()
             return False
         
         if self.abort_flag:
+            self.cleanup_on_error()
             return False
         time.sleep(0.2)
         
         # Step 1: Save As
         if not self.step1_save_as():
             self.update_status("FAIL @ 1", "#ff0000")
+            self.cleanup_on_error()
             return False
         
         if self.abort_flag:
+            self.cleanup_on_error()
             return False
         time.sleep(0.2)
         
         # Step 2: Export Machine File
         if not self.step2_export_machine():
             self.update_status("FAIL @ 2", "#ff0000")
+            self.cleanup_on_error()
             return False
         
         if self.abort_flag:
             print("Workflow aborted by user")
+            self.cleanup_on_error()
             return False
         
         print("\n" + "="*50)
@@ -618,6 +666,9 @@ class AutoWorkflow:
         
         self.gui.progress_signal.emit(100)
         self.update_status("ALL DONE! ✓", "#00ff41")
+        
+        # Give the progress bar animation a brief moment to visually fill to 100%
+        time.sleep(0.4)
         
         # Emit Success Toast Signal to Main GUI Thread
         try:
