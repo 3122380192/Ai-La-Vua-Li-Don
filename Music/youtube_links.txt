@@ -1,0 +1,9 @@
+# DÁN LINK NHẠC YOUTUBE VÀO ĐÂY (MỖI DÒNG 1 LINK)
+# Các định dạng được hỗ trợ:
+# - Link video: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+# - Link rút gọn: https://youtu.be/dQw4w9WgXcQ
+#
+# Bên cạnh đó, bạn có thể copy trực tiếp các file nhạc (.mp3, .wav, .m4a)
+# vào folder "Music" này để phát nhạc offline từ máy tính của bạn!
+
+https://www.youtube.com/watch?v=dQw4w9WgXcQ

@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller
+# We keep spec files, but ignore build and dist directories
+build/
+dist/
+
+# Large compiled executables (over 100MB limit)
+Tx5.exe
+TX_Embroider_Tool.exe
+
+# Runtime config and log files
+color_config.json
+config.json
+tx_profile.json
+*.log
+
+# Local virtual environments
+.venv/
+venv/
+ENV/
