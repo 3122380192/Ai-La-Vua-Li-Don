@@ -21,19 +21,19 @@ if errorlevel 1 (
 )
 
 echo [3/5] Cleaning previous build output...
-if exist "build\Tx5" rmdir /s /q "build\Tx5"
-if exist "dist\Tx5.exe" del /f /q "dist\Tx5.exe"
+if exist "build\Tx6" rmdir /s /q "build\Tx6"
+if exist "dist\Tx6.exe" del /f /q "dist\Tx6.exe"
 
 echo [4/5] Building EXE...
-if exist "Tx5.spec" (
-    "%PYTHON_EXE%" -m PyInstaller --clean --noconfirm "Tx5.spec" || goto :fail
+if exist "Tx6.spec" (
+    "%PYTHON_EXE%" -m PyInstaller --clean --noconfirm "Tx6.spec" || goto :fail
 ) else (
-    "%PYTHON_EXE%" -m PyInstaller --clean --noconfirm --onefile --windowed --name Tx5 app.py || goto :fail
+    "%PYTHON_EXE%" -m PyInstaller --clean --noconfirm --onefile --windowed --name Tx6 app.py || goto :fail
 )
 
 echo [5/5] Build finished.
-if exist "dist\Tx5.exe" (
-    for %%I in ("dist\Tx5.exe") do (
+if exist "dist\Tx6.exe" (
+    for %%I in ("dist\Tx6.exe") do (
         echo EXE: %%~fI
         echo Size: %%~zI bytes
     )
