@@ -298,10 +298,9 @@ class AutoWorkflow:
             return True
         return False
         
-    def process_dialog_background(self, keywords, filepath, timeout=3.0):
+    def process_dialog(self, keywords, filepath, timeout=3.0):
         """
-        Wait for dialog to appear, hide it instantly, set filename directly, and save.
-        All done in the background.
+        Wait for dialog to appear, ensure it is visible and active, set filename directly, and save.
         """
         if not HAS_WIN32:
             time.sleep(0.5)
@@ -331,12 +330,16 @@ class AutoWorkflow:
             time.sleep(0.01) # 10ms poll for instant detection
             
         if not dialog_hwnd:
-            print(f"[BACKGROUND] Dialog with keywords {keywords} not found in time.")
+            print(f"[AUTO] Dialog with keywords {keywords} not found in time.")
             return False
             
-        # 2. Hide dialog window instantly
-        win32gui.ShowWindow(dialog_hwnd, win32con.SW_HIDE)
-        print(f"[BACKGROUND] Hid dialog: {win32gui.GetWindowText(dialog_hwnd)}")
+        # 2. Ensure dialog window is visible and active in the foreground
+        try:
+            win32gui.ShowWindow(dialog_hwnd, win32con.SW_SHOW)
+            win32gui.SetForegroundWindow(dialog_hwnd)
+            print(f"[AUTO] Activated dialog: {win32gui.GetWindowText(dialog_hwnd)}")
+        except Exception as e:
+            print(f"[AUTO] Error activating dialog: {e}")
         
         # 3. Find the Edit control inside dialog
         edit_hwnd = None
@@ -352,9 +355,13 @@ class AutoWorkflow:
             edit_hwnd = child_edits[0]
             
         if not edit_hwnd:
-            print("[BACKGROUND] Edit control not found, falling back to keystrokes")
+            print("[AUTO] Edit control not found, falling back to keystrokes")
             # Fallback if no Edit control found
-            win32gui.ShowWindow(dialog_hwnd, win32con.SW_SHOW)
+            try:
+                win32gui.ShowWindow(dialog_hwnd, win32con.SW_SHOW)
+                win32gui.SetForegroundWindow(dialog_hwnd)
+            except:
+                pass
             pyperclip.copy(filepath)
             time.sleep(0.05)
             keyboard.send('ctrl+v')
@@ -362,19 +369,19 @@ class AutoWorkflow:
             keyboard.send('enter')
             return True
             
-        # 4. Set text via WM_SETTEXT directly (instant & background)
+        # 4. Set text via WM_SETTEXT directly (instant)
         win32gui.SendMessage(edit_hwnd, win32con.WM_SETTEXT, 0, filepath)
         time.sleep(0.05)
         
         # 5. Submit dialog via WM_COMMAND (IDOK is 1)
         win32gui.PostMessage(dialog_hwnd, win32con.WM_COMMAND, 1, 0)
-        print(f"[BACKGROUND] Filled and submitted dialog for filepath: {filepath}")
+        print(f"[AUTO] Filled and submitted dialog for filepath: {filepath}")
         return True
 
-    def check_and_confirm_overwrite_bg(self, timeout=0.8):
+    def check_and_confirm_overwrite(self, timeout=0.8):
         """
-        Poll for overwrite confirmation dialog in the background.
-        If found, hide it instantly and press Enter (or Yes) to confirm.
+        Poll for overwrite confirmation dialog.
+        If found, ensure it is active and press Enter (or Yes) to confirm.
         """
         if not HAS_WIN32:
             return False
@@ -395,14 +402,28 @@ class AutoWorkflow:
             win32gui.EnumWindows(find_confirm, results)
             if results:
                 confirm_hwnd = results[0]
-                # Hide instantly
-                win32gui.ShowWindow(confirm_hwnd, win32con.SW_HIDE)
-                print(f"[BACKGROUND] Hid overwrite dialog: {win32gui.GetWindowText(confirm_hwnd)}")
+                # Ensure visible and active
+                try:
+                    win32gui.ShowWindow(confirm_hwnd, win32con.SW_SHOW)
+                    win32gui.SetForegroundWindow(confirm_hwnd)
+                    print(f"[AUTO] Activated overwrite dialog: {win32gui.GetWindowText(confirm_hwnd)}")
+                except Exception as e:
+                    print(f"[AUTO] Error activating overwrite dialog: {e}")
+                
                 # Send IDYES (6) and IDOK (1) to confirm overwrite
                 win32gui.PostMessage(confirm_hwnd, win32con.WM_COMMAND, 6, 0)
                 win32gui.PostMessage(confirm_hwnd, win32con.WM_COMMAND, 1, 0)
                 return True
             time.sleep(0.01)
+        return False
+
+    def verify_file_saved(self, filepath, timeout=2.0):
+        """Poll the filesystem to verify the file was actually saved and is not empty"""
+        start = time.time()
+        while time.time() - start < timeout:
+            if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                return True
+            time.sleep(0.1)
         return False
     
     def step0_prepare_data(self):
@@ -435,7 +456,7 @@ class AutoWorkflow:
     
     def step1_save_as(self):
         """
-        Step 1: Save As with FULL PATH and .EMB extension in background
+        Step 1: Save As with FULL PATH and .EMB extension
         """
         if self.check_abort():
             return False
@@ -466,21 +487,35 @@ class AutoWorkflow:
         # 4. Build FULL PATH with .EMB extension
         full_save_path = os.path.join(self.folder_path, f"{self.id_checkbox}.EMB")
         
-        # 5. Process dialog instantly in background
-        if not self.process_dialog_background(["Save As", "Lưu", "Save"], full_save_path, timeout=3.0):
+        # Pre-delete file if it exists to avoid overwrite dialog and speed up saving
+        if os.path.exists(full_save_path):
+            try:
+                os.remove(full_save_path)
+                print(f"[AUTO] Pre-deleted existing EMB file: {full_save_path}")
+            except Exception as e:
+                print(f"[AUTO] Could not pre-delete EMB file: {e}")
+
+        # 5. Process dialog instantly
+        if not self.process_dialog(["Save As", "Lưu", "Save"], full_save_path, timeout=3.0):
             return False
             
-        # 6. Check and handle overwrite dialog in background
-        self.check_and_confirm_overwrite_bg()
+        # 6. Check and handle overwrite dialog
+        self.check_and_confirm_overwrite()
             
-        self.gui.progress_signal.emit(70)
-        self.update_status("Step 1 ✓", "#00ff41")
-        print("[AUTO STEP 1] Complete")
-        return True
+        # 7. Verify file was saved
+        if self.verify_file_saved(full_save_path):
+            self.gui.progress_signal.emit(70)
+            self.update_status("Step 1 ✓", "#00ff41")
+            print("[AUTO STEP 1] Complete")
+            return True
+        else:
+            self.update_status("EMB Save Fail", "#ff3333")
+            print(f"Error: EMB file not found or empty after saving: {full_save_path}")
+            return False
     
     def step2_export_machine(self):
         """
-        Step 2: Export Machine File in background
+        Step 2: Export Machine File
         """
         if self.check_abort():
             return False
@@ -504,17 +539,31 @@ class AutoWorkflow:
         export_filename = f"{self.id_checkbox}{extension}"
         full_export_path = os.path.join(self.folder_path, export_filename)
         
-        # 4. Process dialog instantly in background
-        if not self.process_dialog_background(["Export", "Machine", "Xuất"], full_export_path, timeout=3.0):
+        # Pre-delete file if it exists to avoid overwrite dialog and speed up saving
+        if os.path.exists(full_export_path):
+            try:
+                os.remove(full_export_path)
+                print(f"[AUTO] Pre-deleted existing machine file: {full_export_path}")
+            except Exception as e:
+                print(f"[AUTO] Could not pre-delete machine file: {e}")
+
+        # 4. Process dialog instantly
+        if not self.process_dialog(["Export", "Machine", "Xuất"], full_export_path, timeout=3.0):
             return False
             
-        # 5. Check and handle overwrite dialog in background
-        self.check_and_confirm_overwrite_bg()
+        # 5. Check and handle overwrite dialog
+        self.check_and_confirm_overwrite()
             
-        self.gui.progress_signal.emit(95)
-        self.update_status("Step 2 ✓", "#00ff41")
-        print(f"[AUTO STEP 2] Exported: {export_filename}")
-        return True
+        # 6. Verify file was saved
+        if self.verify_file_saved(full_export_path):
+            self.gui.progress_signal.emit(95)
+            self.update_status("Step 2 ✓", "#00ff41")
+            print(f"[AUTO STEP 2] Exported: {export_filename}")
+            return True
+        else:
+            self.update_status("Export Fail", "#ff3333")
+            print(f"Error: Exported machine file not found or empty: {full_export_path}")
+            return False
     
     def step3_screenshot(self):
         """

@@ -856,9 +856,10 @@ class MiniApp(QMainWindow):
         if hasattr(self, 'prog_bar'):
             self.prog_bar.setValue(value)
             self.prog_bar.setVisible(value > 0 and value <= 100)
+            self.prog_bar.repaint()  # Force immediate UI redraw
             if value >= 100:
                 self.lbl_status_strip.setText("Hoan tat")
-                QTimer.singleShot(2000, lambda: self.prog_bar.setVisible(False))
+                QTimer.singleShot(3000, lambda: self.prog_bar.setVisible(False))
 
     @Slot(str, str)
     def _update_status_strip(self, text, color="#f6de95"):
@@ -1088,7 +1089,7 @@ class MiniApp(QMainWindow):
 
         # Real Neon Progress Bar
         self.prog_bar = QProgressBar()
-        self.prog_bar.setFixedHeight(8)
+        self.prog_bar.setFixedHeight(12)  # Increased from 8 to 12 for text readability
         self.prog_bar.setTextVisible(True)
         self.prog_bar.setAlignment(Qt.AlignCenter)
         self.prog_bar.setStyleSheet("""
@@ -1096,9 +1097,9 @@ class MiniApp(QMainWindow):
                 border: 1px solid #00ff41;
                 border-radius: 3px;
                 background: #020502;
-                color: #00ff41;
+                color: #ffffff; /* White text for contrast on both dark background and green chunk */
                 font-family: 'Consolas', sans-serif;
-                font-size: 7px;
+                font-size: 9px;
                 font-weight: bold;
                 text-align: center;
             }
