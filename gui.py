@@ -732,6 +732,7 @@ class MiniApp(QMainWindow):
     status_signal = Signal(str, str) 
     progress_signal = Signal(int)
     show_success_toast_signal = Signal(str)
+    execute_in_main_thread_signal = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -827,6 +828,7 @@ class MiniApp(QMainWindow):
         self.status_signal.connect(self._update_status_strip)
         self.progress_signal.connect(self.set_progress)
         self.show_success_toast_signal.connect(self.show_success_toast)
+        self.execute_in_main_thread_signal.connect(self._run_on_main_thread)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1377,14 +1379,20 @@ class MiniApp(QMainWindow):
                 return
         super().changeEvent(event)
 
+    def _run_on_main_thread(self, func):
+        try:
+            func()
+        except Exception as e:
+            print(f"Error executing on main thread: {e}")
+
     def safe_trigger(self, func, *args, **kwargs):
         """Invoke a function safely on the main GUI thread."""
-        QTimer.singleShot(0, lambda: func(*args, **kwargs))
+        self.execute_in_main_thread_signal.emit(lambda: func(*args, **kwargs))
 
     def safe_trigger_event(self, event):
         """Handle key event safely on main thread and filter out keypad 0"""
         if event.name == 'insert' and not event.is_keypad:
-            self.hotkey_toggle_visibility()
+            self.execute_in_main_thread_signal.emit(self.hotkey_toggle_visibility)
 
     def setup_hotkeys(self):
         """Setup global hotkeys for the application"""
@@ -1411,7 +1419,7 @@ class MiniApp(QMainWindow):
             keyboard.add_hotkey('ctrl+q', lambda: self.safe_trigger(self.emergency_stop))
             
             # Use on_press_key for 'insert' key to hook events with event argument to filter out Numpad 0
-            keyboard.on_press_key('insert', lambda event: QTimer.singleShot(0, lambda: self.safe_trigger_event(event)))
+            keyboard.on_press_key('insert', self.safe_trigger_event)
             
             self._hotkeys_registered = True
             print("Hotkeys registered safely with main-thread marshalling. Insert key NumPad 0 filter active.")
