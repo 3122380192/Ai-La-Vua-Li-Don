@@ -1584,161 +1584,154 @@ class MiniApp(QMainWindow):
              text = self.current_data.get('mode', '')
         elif field == "badge":
             text = self.current_data.get('size', '')
-            
-        if text and text != "-" and text != "Unknown":
-            logic.copy_to_clipboard(text)
-            self.last_copied = text  # Store for screenshot naming
-            self.flash_status(f"COPIED") 
 
-    def copy_file_to_clipboard(self, file_path):
-        """Copy a file path as CF_HDROP to the Windows clipboard."""
-        import ctypes
-        import ctypes.wintypes
-        import win32clipboard
-        import win32con
-        import struct
-
-        try:
-            file_path = os.path.abspath(file_path)
-            # Encode as null-terminated UTF-16-LE, with double null at end
-            file_bytes = (file_path + '\x00\x00').encode('utf-16-le')
-
-            # DROPFILES struct: cbSize(4), pt.x(4), pt.y(4), fNC(4), fWide(4) = 20 bytes
-            # pFiles offset = 20 (right after the struct)
-            dropfiles_header = struct.pack('IIIII',
-                20,   # cbSize = sizeof(DROPFILES)
-                0,    # pt.x
-                0,    # pt.y  
-                0,    # fNC
-                1,    # fWide = TRUE (Unicode)
-            )
-            clipboard_data = dropfiles_header + file_bytes
-
-            # Allocate global memory
-            hGlobal = ctypes.windll.kernel32.GlobalAlloc(
-                win32con.GMEM_MOVEABLE | win32con.GMEM_ZEROINIT,
-                len(clipboard_data)
-            )
-            if not hGlobal:
-                raise RuntimeError('GlobalAlloc failed')
-
-            pGlobal = ctypes.windll.kernel32.GlobalLock(hGlobal)
-            if not pGlobal:
-                ctypes.windll.kernel32.GlobalFree(hGlobal)
-                raise RuntimeError('GlobalLock failed')
-
-            ctypes.memmove(pGlobal, clipboard_data, len(clipboard_data))
-            ctypes.windll.kernel32.GlobalUnlock(hGlobal)
-
-            win32clipboard.OpenClipboard(0)
-            try:
-                win32clipboard.EmptyClipboard()
-                win32clipboard.SetClipboardData(win32con.CF_HDROP, hGlobal)
-            finally:
-                win32clipboard.CloseClipboard()
-
-            print(f"[PASTE] Clipboard set: {file_path}")
-            return True
-        except Exception as e:
-            print(f"[PASTE] copy_file_to_clipboard error: {e}")
-            return False
+    def find_wilcom_hwnd(self):
+        """Find the Ultimate Special Edition window HWND."""
+        search_keywords = ["Ultimate Special", "[Ultimate", "Embroid", "Wilcom", "Tajima", "Pulse"]
+        hwnd = None
+        def enum_handler(h, _):
+            nonlocal hwnd
+            if hwnd:
+                return
+            if not win32gui.IsWindowVisible(h):
+                return
+            title = win32gui.GetWindowText(h)
+            if title and any(kw in title for kw in search_keywords):
+                if 'TX Embroider' not in title and 'TX EMBROIDER' not in title:
+                    hwnd = h
+        win32gui.EnumWindows(enum_handler, None)
+        return hwnd
 
     def focus_wilcom_window(self):
         """Find and force-foreground the Ultimate Special Edition window."""
         import ctypes
-        import win32process
-        import win32con
-
-        search_keywords = ["Ultimate Special", "[Ultimate", "Embroid", "Wilcom", "Design", "Tajima", "Pulse"]
-
-        hwnd = None
-
-        # Use EnumWindows for a reliable partial-title search
-        def enum_handler(h, _):
-            nonlocal hwnd
-            if hwnd:
-                return  # Already found
-            if not win32gui.IsWindowVisible(h):
-                return
-            title = win32gui.GetWindowText(h)
-            if not title:
-                return
-            if any(kw in title for kw in search_keywords):
-                # Skip our own app
-                if 'TX Embroider' in title or 'TX EMBROIDER' in title:
-                    return
-                hwnd = h
-
-        win32gui.EnumWindows(enum_handler, None)
-
+        hwnd = self.find_wilcom_hwnd()
         if not hwnd:
-            print('[PASTE] Wilcom window not found')
             return False
-
         try:
-            # Restore if minimized
             if win32gui.IsIconic(hwnd):
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 time.sleep(0.15)
-
-            # Force focus using the foreground lock bypass trick:
-            # Attach our thread's input state to the target window's thread
             fg_hwnd = win32gui.GetForegroundWindow()
             fg_tid, _ = win32process.GetWindowThreadProcessId(fg_hwnd)
             tgt_tid, _ = win32process.GetWindowThreadProcessId(hwnd)
-
             if fg_tid != tgt_tid:
                 ctypes.windll.user32.AttachThreadInput(fg_tid, tgt_tid, True)
-
             win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
             win32gui.BringWindowToTop(hwnd)
             win32gui.SetForegroundWindow(hwnd)
-
             if fg_tid != tgt_tid:
                 ctypes.windll.user32.AttachThreadInput(fg_tid, tgt_tid, False)
-
-            time.sleep(0.25)  # Let the window receive focus
-            title = win32gui.GetWindowText(hwnd)
-            print(f'[PASTE] Focused: {title}')
+            time.sleep(0.2)
             return True
         except Exception as e:
-            print(f'[PASTE] focus_wilcom_window error: {e}')
+            print(f'[DRAG] focus error: {e}')
+            return False
+
+    def drop_file_wm(self, hwnd, file_path):
+        """Send WM_DROPFILES directly — fastest drag-drop simulation, no mouse needed."""
+        import ctypes, struct
+        WM_DROPFILES = 0x0233
+        GMEM_MOVEABLE = 0x0002
+        file_path = os.path.abspath(file_path)
+        data = struct.pack('IIIII', 20, 0, 0, 0, 1) + (file_path + '\x00\x00').encode('utf-16-le')
+
+        # Allocate a fresh HDROP for every target we try
+        def make_hdrop():
+            hg = ctypes.windll.kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+            if not hg:
+                return None
+            pg = ctypes.windll.kernel32.GlobalLock(hg)
+            ctypes.memmove(pg, data, len(data))
+            ctypes.windll.kernel32.GlobalUnlock(hg)
+            return hg
+
+        # Build target list: main window + all children
+        targets = [hwnd]
+        def collect(h, lst):
+            lst.append(h)
+        try:
+            win32gui.EnumChildWindows(hwnd, collect, targets)
+        except:
+            pass
+
+        for t in targets:
+            hg = make_hdrop()
+            if hg:
+                ctypes.windll.user32.SendMessageW(t, WM_DROPFILES, hg, 0)
+        return True
+
+    def drop_file_mouse(self, file_path, target_hwnd):
+        """Drag a file into a window using real mouse movement (pyautogui)."""
+        import subprocess
+        try:
+            rect = win32gui.GetWindowRect(target_hwnd)
+            dst_x = (rect[0] + rect[2]) // 2
+            dst_y = (rect[1] + rect[3]) // 2
+
+            # Open Explorer showing the file (selected) so we have a drag source
+            subprocess.Popen(f'explorer /select,"{os.path.abspath(file_path)}"', shell=True)
+            time.sleep(1.0)
+
+            # Find the Explorer window
+            exp_hwnd = None
+            fname = os.path.basename(file_path)
+            def find_exp(h, _):
+                nonlocal exp_hwnd
+                if exp_hwnd or not win32gui.IsWindowVisible(h):
+                    return
+                t = win32gui.GetWindowText(h)
+                cls = win32gui.GetClassName(h)
+                if ('Desktop' in t or fname in t) and 'Cabinet' in cls:
+                    exp_hwnd = h
+            win32gui.EnumWindows(find_exp, None)
+
+            if not exp_hwnd:
+                return False
+
+            erect = win32gui.GetWindowRect(exp_hwnd)
+            src_x = (erect[0] + erect[2]) // 2
+            src_y = (erect[1] + erect[3]) // 2
+
+            win32gui.SetForegroundWindow(exp_hwnd)
+            time.sleep(0.3)
+
+            pyautogui.moveTo(src_x, src_y, duration=0.05)
+            pyautogui.mouseDown()
+            time.sleep(0.1)
+            pyautogui.moveTo(dst_x, dst_y, duration=0.25)
+            time.sleep(0.1)
+            pyautogui.mouseUp()
+            time.sleep(0.2)
+
+            try:
+                win32gui.PostMessage(exp_hwnd, 0x0010, 0, 0)  # WM_CLOSE
+            except:
+                pass
+            return True
+        except Exception as e:
+            print(f'[DRAG] mouse drag error: {e}')
             return False
 
     def on_paste_wilcom_clicked(self):
-        """Worker thread: paste 2.png then 1.png into Ultimate Special Edition."""
+        """Worker thread: drag-drop 2.png then 1.png into Ultimate Special Edition."""
         import threading
-        import win32con
-        import win32api
 
-        def paste_one_image(img_path, label):
-            """Copy file to clipboard and send Ctrl+V to the Wilcom window."""
-            self.status_signal.emit(f"Dan {label}...", "#00ffff")
-
-            if not self.copy_file_to_clipboard(img_path):
-                self.status_signal.emit(f"Loi copy {label}", "#ff3333")
-                return False
-
-            # Re-focus every paste to make sure we have the window
-            if not self.focus_wilcom_window():
-                self.status_signal.emit("Mat focus Wilcom", "#ff3333")
-                return False
-
-            time.sleep(0.1)
-            # Send Ctrl+V using pyautogui (window is now foreground)
-            pyautogui.hotkey('ctrl', 'v')
+        def drop_one(file_path, label, hwnd):
+            self.status_signal.emit(f'Keo {label}...', '#00ffff')
+            # Method 1: WM_DROPFILES — instant, no mouse
+            self.drop_file_wm(hwnd, file_path)
+            print(f'[DRAG] WM_DROPFILES sent: {label}')
             return True
 
-        def run_paste_workflow():
+        def run():
             try:
-                desktop_path = os.path.join(os.path.expanduser('~'), 'Desktop')
-
-                # Resolve paths (case-insensitive fallback)
+                desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
                 def resolve(name):
-                    p = os.path.join(desktop_path, name)
+                    p = os.path.join(desktop, name)
                     if os.path.exists(p):
                         return p
-                    p2 = os.path.join(desktop_path, name.upper())
+                    p2 = os.path.join(desktop, name.upper())
                     return p2 if os.path.exists(p2) else None
 
                 img2 = resolve('2.png')
@@ -1749,37 +1742,29 @@ class MiniApp(QMainWindow):
                     return
 
                 self.status_signal.emit('Tim Wilcom...', '#ffff00')
-
-                # Initial focus
-                if not self.focus_wilcom_window():
+                hwnd = self.find_wilcom_hwnd()
+                if not hwnd:
                     self.status_signal.emit('Khong thay Wilcom', '#ff3333')
                     return
 
-                pasted = False
+                self.focus_wilcom_window()
 
                 if img2:
-                    ok = paste_one_image(img2, '2.png')
-                    if ok:
-                        pasted = True
-                        time.sleep(0.8)  # Wait for Wilcom to load image
+                    drop_one(img2, '2.png', hwnd)
+                    time.sleep(0.5)
 
                 if img1:
-                    ok = paste_one_image(img1, '1.png')
-                    if ok:
-                        pasted = True
-                        time.sleep(0.5)
+                    drop_one(img1, '1.png', hwnd)
+                    time.sleep(0.3)
 
-                if pasted:
-                    self.status_signal.emit('Dan xong!', '#00ff41')
-                    self.show_success_toast_signal.emit('Dan anh vao Wilcom thanh cong!')
-                else:
-                    self.status_signal.emit('Khong dan duoc', '#ff3333')
+                self.status_signal.emit('Keo tha xong!', '#00ff41')
+                self.show_success_toast_signal.emit('Keo tha anh vao Wilcom thanh cong!')
 
             except Exception as e:
-                print(f'[PASTE] Workflow error: {e}')
-                self.status_signal.emit('Loi dan anh', '#ff3333')
+                print(f'[DRAG] Error: {e}')
+                self.status_signal.emit('Loi keo tha', '#ff3333')
 
-        threading.Thread(target=run_paste_workflow, daemon=True).start() 
+        threading.Thread(target=run, daemon=True).start()
 
     def flash_status(self, text, color="#00ff41"):
         # Emit signal to update UI from Main Thread
