@@ -1678,21 +1678,25 @@ class MiniApp(QMainWindow):
                 img1_path = os.path.join(desktop_path, "1.png")
                 img2_path = os.path.join(desktop_path, "2.png")
                 
-                # Check 2.png
-                if not os.path.exists(img2_path):
-                    if os.path.exists(os.path.join(desktop_path, "2.PNG")):
-                        img2_path = os.path.join(desktop_path, "2.PNG")
-                    else:
-                        self.status_signal.emit("Thieu 2.png o Desktop", "#ff3333")
-                        return
-                        
-                # Check 1.png
-                if not os.path.exists(img1_path):
-                    if os.path.exists(os.path.join(desktop_path, "1.PNG")):
-                        img1_path = os.path.join(desktop_path, "1.PNG")
-                    else:
-                        self.status_signal.emit("Thieu 1.png o Desktop", "#ff3333")
-                        return
+                # Check actual existence for 2.png
+                has_img2 = False
+                if os.path.exists(img2_path):
+                    has_img2 = True
+                elif os.path.exists(os.path.join(desktop_path, "2.PNG")):
+                    img2_path = os.path.join(desktop_path, "2.PNG")
+                    has_img2 = True
+                    
+                # Check actual existence for 1.png
+                has_img1 = False
+                if os.path.exists(img1_path):
+                    has_img1 = True
+                elif os.path.exists(os.path.join(desktop_path, "1.PNG")):
+                    img1_path = os.path.join(desktop_path, "1.PNG")
+                    has_img1 = True
+
+                if not has_img1 and not has_img2:
+                    self.status_signal.emit("Thieu 1.png & 2.png", "#ff3333")
+                    return
 
                 self.status_signal.emit("Dang mo Wilcom...", "#ffff00")
                 
@@ -1701,27 +1705,37 @@ class MiniApp(QMainWindow):
                     self.status_signal.emit("Khong thay Wilcom", "#ff3333")
                     return
                 
-                # Paste 2.png
-                self.status_signal.emit("Dan 2.png...", "#00ffff")
-                if not self.copy_file_to_clipboard(img2_path):
-                    self.status_signal.emit("Loi copy 2.png", "#ff3333")
-                    return
-                time.sleep(0.3)
-                pyautogui.hotkey('ctrl', 'v')
-                time.sleep(1.2) # Wait for import/processing
+                pasted_any = False
                 
-                # Paste 1.png
-                self.status_signal.emit("Dan 1.png...", "#00ffff")
-                if not self.copy_file_to_clipboard(img1_path):
-                    self.status_signal.emit("Loi copy 1.png", "#ff3333")
-                    return
-                time.sleep(0.3)
-                pyautogui.hotkey('ctrl', 'v')
-                time.sleep(1.0)
+                # Paste 2.png first if it exists
+                if has_img2:
+                    self.status_signal.emit("Dan 2.png...", "#00ffff")
+                    if self.copy_file_to_clipboard(img2_path):
+                        time.sleep(0.3)
+                        pyautogui.hotkey('ctrl', 'v')
+                        time.sleep(1.2) # Wait for import/processing
+                        pasted_any = True
+                    else:
+                        self.status_signal.emit("Loi copy 2.png", "#ff3333")
+                        time.sleep(1.0)
                 
-                # Success
-                self.status_signal.emit("Da dan xong!", "#00ff41")
-                self.show_success_toast_signal.emit("Dán 2 ảnh vào Wilcom thành công!")
+                # Paste 1.png next if it exists
+                if has_img1:
+                    self.status_signal.emit("Dan 1.png...", "#00ffff")
+                    if self.copy_file_to_clipboard(img1_path):
+                        time.sleep(0.3)
+                        pyautogui.hotkey('ctrl', 'v')
+                        time.sleep(1.0)
+                        pasted_any = True
+                    else:
+                        self.status_signal.emit("Loi copy 1.png", "#ff3333")
+                        time.sleep(1.0)
+                
+                if pasted_any:
+                    self.status_signal.emit("Da dan xong!", "#00ff41")
+                    self.show_success_toast_signal.emit("Dán ảnh vào Wilcom thành công!")
+                else:
+                    self.status_signal.emit("Khong dan duoc", "#ff3333")
             except Exception as e:
                 print(f"Error in paste workflow: {e}")
                 self.status_signal.emit("Loi dan anh", "#ff3333")
