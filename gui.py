@@ -121,6 +121,7 @@ class HackMenuDialog(QDialog):
             ("ALT+E", "MO THU MUC", "Mo nhanh thu muc dang xu ly"),
             ("ALT+C", "COPY MA", "Sao chep ma don"),
             ("ALT+B", "CHUP ANH", "Chup cua so theu"),
+            ("ALT+I", "IMPORT IMG", "Tu dong dan 2.png roi 1.png vao Wilcom"),
             ("CTRL+B", "CHAY AUTO", "Chay quy trinh tu dong 3 buoc"),
             ("CTRL+SHIFT+B", "AUTO NHANH", "Chay auto nhanh bang phim phu"),
             ("CTRL+SHIFT+V", "COPY MIX", "Copy ID kem vi tri da tick"),
@@ -732,7 +733,7 @@ class MiniApp(QMainWindow):
     status_signal = Signal(str, str) 
     progress_signal = Signal(int)
     show_success_toast_signal = Signal(str)
-    execute_in_main_thread_signal = Signal(object)
+    hotkey_triggered_signal = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -828,7 +829,7 @@ class MiniApp(QMainWindow):
         self.status_signal.connect(self._update_status_strip)
         self.progress_signal.connect(self.set_progress)
         self.show_success_toast_signal.connect(self.show_success_toast)
-        self.execute_in_main_thread_signal.connect(self._run_on_main_thread)
+        self.hotkey_triggered_signal.connect(self._handle_hotkey_on_main_thread)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1205,6 +1206,14 @@ class MiniApp(QMainWindow):
         row2_layout.addWidget(self.btn_reset)
         row2_layout.addWidget(self.cb_tools)
         row2_layout.addWidget(self.btn_run_tool)
+        
+        # Paste 2 images into Wilcom Button
+        self.btn_paste_wilcom = QPushButton("📥")
+        self.btn_paste_wilcom.setFixedSize(24, 24)
+        self.btn_paste_wilcom.setStyleSheet("QPushButton { background: #020502; border: 1px solid #00ff41; border-radius: 4px; color: #00e5ff; font-size: 11px; font-weight: bold; } QPushButton:hover { background: #002233; color: #ffffff; }")
+        self.btn_paste_wilcom.clicked.connect(self.on_paste_wilcom_clicked)
+        self.btn_paste_wilcom.setToolTip("Auto dán 2 ảnh (2.png -> 1.png) vào Wilcom (Alt+I)")
+        row2_layout.addWidget(self.btn_paste_wilcom)
         row2_layout.addStretch()
         
         row2_widget = QWidget()
@@ -1379,20 +1388,49 @@ class MiniApp(QMainWindow):
                 return
         super().changeEvent(event)
 
-    def _run_on_main_thread(self, func):
+    def _handle_hotkey_on_main_thread(self, action):
         try:
-            func()
+            if action == 'alt+v':
+                self.hotkey_copy_path()
+            elif action == 'alt+e':
+                self.hotkey_open_folder()
+            elif action == 'alt+c':
+                self.hotkey_copy_name()
+            elif action == 'alt+b':
+                self.on_screenshot_v4()
+            elif action == 'ctrl+b':
+                self.hotkey_run_auto()
+            elif action == 'ctrl+shift+b':
+                self.hotkey_run_auto_fast()
+            elif action == 'ctrl+shift+v':
+                self.hotkey_copy_mix()
+            elif action == 'ctrl+r':
+                self.hotkey_reset_data()
+            elif action == 'ctrl+space':
+                self.on_auto_click()
+            elif action == 'ctrl+x':
+                self.on_close_ultimate_app()
+            elif action == 'ctrl+alt+e':
+                self.hotkey_open_folder()
+            elif action == 'ctrl+m':
+                self.hotkey_open_last_screenshot()
+            elif action == 'ctrl+alt+x':
+                self.exit_all_apps()
+            elif action == 'ctrl+h':
+                self.hotkey_show_hack_menu()
+            elif action == 'ctrl+q':
+                self.emergency_stop()
+            elif action == 'insert':
+                self.hotkey_toggle_visibility()
+            elif action == 'alt+i':
+                self.on_paste_wilcom_clicked()
         except Exception as e:
-            print(f"Error executing on main thread: {e}")
-
-    def safe_trigger(self, func, *args, **kwargs):
-        """Invoke a function safely on the main GUI thread."""
-        self.execute_in_main_thread_signal.emit(lambda: func(*args, **kwargs))
+            print(f"Error handling hotkey {action} on main thread: {e}")
 
     def safe_trigger_event(self, event):
         """Handle key event safely on main thread and filter out keypad 0"""
         if event.name == 'insert' and not event.is_keypad:
-            self.execute_in_main_thread_signal.emit(self.hotkey_toggle_visibility)
+            self.hotkey_triggered_signal.emit('insert')
 
     def setup_hotkeys(self):
         """Setup global hotkeys for the application"""
@@ -1402,21 +1440,22 @@ class MiniApp(QMainWindow):
             return
             
         try:
-            keyboard.add_hotkey('alt+v', lambda: self.safe_trigger(self.hotkey_copy_path))
-            keyboard.add_hotkey('alt+e', lambda: self.safe_trigger(self.hotkey_open_folder))
-            keyboard.add_hotkey('alt+c', lambda: self.safe_trigger(self.hotkey_copy_name))
-            keyboard.add_hotkey('alt+b', lambda: self.safe_trigger(self.on_screenshot_v4))
-            keyboard.add_hotkey('ctrl+b', lambda: self.safe_trigger(self.hotkey_run_auto))
-            keyboard.add_hotkey('ctrl+shift+b', lambda: self.safe_trigger(self.hotkey_run_auto_fast))
-            keyboard.add_hotkey('ctrl+shift+v', lambda: self.safe_trigger(self.hotkey_copy_mix))
-            keyboard.add_hotkey('ctrl+r', lambda: self.safe_trigger(self.hotkey_reset_data))
-            keyboard.add_hotkey('ctrl+space', lambda: self.safe_trigger(self.on_auto_click))  # Auto workflow
-            keyboard.add_hotkey('ctrl+x', lambda: self.safe_trigger(self.on_close_ultimate_app)) # Close embroidery app
-            keyboard.add_hotkey('ctrl+alt+e', lambda: self.safe_trigger(self.hotkey_open_folder))
-            keyboard.add_hotkey('ctrl+m', lambda: self.safe_trigger(self.hotkey_open_last_screenshot))
-            keyboard.add_hotkey('ctrl+alt+x', lambda: self.safe_trigger(self.exit_all_apps))
-            keyboard.add_hotkey('ctrl+h', lambda: self.safe_trigger(self.hotkey_show_hack_menu))
-            keyboard.add_hotkey('ctrl+q', lambda: self.safe_trigger(self.emergency_stop))
+            keyboard.add_hotkey('alt+v', lambda: self.hotkey_triggered_signal.emit('alt+v'))
+            keyboard.add_hotkey('alt+e', lambda: self.hotkey_triggered_signal.emit('alt+e'))
+            keyboard.add_hotkey('alt+c', lambda: self.hotkey_triggered_signal.emit('alt+c'))
+            keyboard.add_hotkey('alt+b', lambda: self.hotkey_triggered_signal.emit('alt+b'))
+            keyboard.add_hotkey('ctrl+b', lambda: self.hotkey_triggered_signal.emit('ctrl+b'))
+            keyboard.add_hotkey('ctrl+shift+b', lambda: self.hotkey_triggered_signal.emit('ctrl+shift+b'))
+            keyboard.add_hotkey('ctrl+shift+v', lambda: self.hotkey_triggered_signal.emit('ctrl+shift+v'))
+            keyboard.add_hotkey('ctrl+r', lambda: self.hotkey_triggered_signal.emit('ctrl+r'))
+            keyboard.add_hotkey('ctrl+space', lambda: self.hotkey_triggered_signal.emit('ctrl+space'))
+            keyboard.add_hotkey('ctrl+x', lambda: self.hotkey_triggered_signal.emit('ctrl+x'))
+            keyboard.add_hotkey('ctrl+alt+e', lambda: self.hotkey_triggered_signal.emit('ctrl+alt+e'))
+            keyboard.add_hotkey('ctrl+m', lambda: self.hotkey_triggered_signal.emit('ctrl+m'))
+            keyboard.add_hotkey('ctrl+alt+x', lambda: self.hotkey_triggered_signal.emit('ctrl+alt+x'))
+            keyboard.add_hotkey('ctrl+h', lambda: self.hotkey_triggered_signal.emit('ctrl+h'))
+            keyboard.add_hotkey('ctrl+q', lambda: self.hotkey_triggered_signal.emit('ctrl+q'))
+            keyboard.add_hotkey('alt+i', lambda: self.hotkey_triggered_signal.emit('alt+i'))
             
             # Use on_press_key for 'insert' key to hook events with event argument to filter out Numpad 0
             keyboard.on_press_key('insert', self.safe_trigger_event)
@@ -1548,6 +1587,146 @@ class MiniApp(QMainWindow):
             logic.copy_to_clipboard(text)
             self.last_copied = text  # Store for screenshot naming
             self.flash_status(f"COPIED") 
+
+    def copy_file_to_clipboard(self, file_path):
+        try:
+            file_path = os.path.abspath(file_path).replace('/', '\\')
+            joined_paths = file_path + "\x00\x00"
+            data = joined_paths.encode("utf-16-le")
+            import struct
+            header = struct.pack("IIIII", 20, 0, 0, 0, 1)
+            clipboard_data = header + data
+            
+            import win32clipboard
+            import win32con
+            import ctypes
+            
+            win32clipboard.OpenClipboard()
+            try:
+                win32clipboard.EmptyClipboard()
+                hGlobal = ctypes.windll.kernel32.GlobalAlloc(win32con.GMEM_DDESHARE, len(clipboard_data))
+                pGlobal = ctypes.windll.kernel32.GlobalLock(hGlobal)
+                ctypes.memmove(pGlobal, clipboard_data, len(clipboard_data))
+                ctypes.windll.kernel32.GlobalUnlock(hGlobal)
+                win32clipboard.SetClipboardData(win32con.CF_HDROP, hGlobal)
+            finally:
+                win32clipboard.CloseClipboard()
+            return True
+        except Exception as e:
+            print(f"Error copying file to clipboard: {e}")
+            return False
+
+    def focus_wilcom_window(self):
+        possible_titles = [
+            "Ultimate Special Edition",
+            "[Ultimate Special Edition]",
+            "Ultimate Special",
+            "[Ultimate Special",
+            "Embroider",
+            "Embroidery",
+            "Design",
+            "Wilcom",
+            "Brother",
+            "Tajima",
+            "Pulse",
+        ]
+        
+        hwnd = None
+        # Try exact title matches first
+        for title in possible_titles:
+            try:
+                h = win32gui.FindWindow(None, title)
+                if h:
+                    hwnd = h
+                    break
+            except:
+                continue
+                
+        # Try partial match if exact title matches fail
+        if not hwnd:
+            search_keywords = ["Ultimate", "Special", "Edition", "Embroid", "Design", "Wilcom"]
+            def enum_handler(h, extra):
+                nonlocal hwnd
+                if win32gui.IsWindowVisible(h):
+                    title = win32gui.GetWindowText(h)
+                    if any(kw in title for kw in search_keywords) and not ("TX Embroider" in title or "TX EMBROIDER" in title):
+                        hwnd = h
+            try:
+                win32gui.EnumWindows(enum_handler, None)
+            except:
+                pass
+                
+        if hwnd:
+            try:
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(hwnd)
+                time.sleep(0.3)
+                return True
+            except Exception as e:
+                print(f"Error focusing Wilcom: {e}")
+                return False
+        return False
+
+    def on_paste_wilcom_clicked(self):
+        """Worker thread to copy/paste 2.png then 1.png into Wilcom"""
+        import threading
+        
+        def run_paste_workflow():
+            try:
+                desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+                img1_path = os.path.join(desktop_path, "1.png")
+                img2_path = os.path.join(desktop_path, "2.png")
+                
+                # Check 2.png
+                if not os.path.exists(img2_path):
+                    if os.path.exists(os.path.join(desktop_path, "2.PNG")):
+                        img2_path = os.path.join(desktop_path, "2.PNG")
+                    else:
+                        self.status_signal.emit("Thieu 2.png o Desktop", "#ff3333")
+                        return
+                        
+                # Check 1.png
+                if not os.path.exists(img1_path):
+                    if os.path.exists(os.path.join(desktop_path, "1.PNG")):
+                        img1_path = os.path.join(desktop_path, "1.PNG")
+                    else:
+                        self.status_signal.emit("Thieu 1.png o Desktop", "#ff3333")
+                        return
+
+                self.status_signal.emit("Dang mo Wilcom...", "#ffff00")
+                
+                # Focus Wilcom
+                if not self.focus_wilcom_window():
+                    self.status_signal.emit("Khong thay Wilcom", "#ff3333")
+                    return
+                
+                # Paste 2.png
+                self.status_signal.emit("Dan 2.png...", "#00ffff")
+                if not self.copy_file_to_clipboard(img2_path):
+                    self.status_signal.emit("Loi copy 2.png", "#ff3333")
+                    return
+                time.sleep(0.3)
+                pyautogui.hotkey('ctrl', 'v')
+                time.sleep(1.2) # Wait for import/processing
+                
+                # Paste 1.png
+                self.status_signal.emit("Dan 1.png...", "#00ffff")
+                if not self.copy_file_to_clipboard(img1_path):
+                    self.status_signal.emit("Loi copy 1.png", "#ff3333")
+                    return
+                time.sleep(0.3)
+                pyautogui.hotkey('ctrl', 'v')
+                time.sleep(1.0)
+                
+                # Success
+                self.status_signal.emit("Da dan xong!", "#00ff41")
+                self.show_success_toast_signal.emit("Dán 2 ảnh vào Wilcom thành công!")
+            except Exception as e:
+                print(f"Error in paste workflow: {e}")
+                self.status_signal.emit("Loi dan anh", "#ff3333")
+                
+        threading.Thread(target=run_paste_workflow, daemon=True).start() 
 
     def flash_status(self, text, color="#00ff41"):
         # Emit signal to update UI from Main Thread
