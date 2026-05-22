@@ -222,27 +222,27 @@ class SuccessToast(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet("""
             QDialog {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4a0000, stop:1 #800000);
-                border: 2px solid #ff0000;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #051a05, stop:1 #003300);
+                border: 2px solid #00ff41;
                 border-radius: 8px;
             }
             QLabel {
                 color: #ffffff;
                 font-family: 'Segoe UI', 'Consolas', sans-serif;
                 font-weight: bold;
-                font-size: 14px;
+                font-size: 13px;
             }
         """)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 8, 20, 8)
+        layout.setContentsMargins(20, 10, 20, 10)
         
         lbl = QLabel(message)
         lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl)
         
         self.adjust_position()
-        QTimer.singleShot(1000, self.close)
+        QTimer.singleShot(2500, self.close)
         
     def adjust_position(self):
         screen = QApplication.primaryScreen().geometry()
@@ -336,7 +336,7 @@ class HelpTooltip(QFrame):
             "⚡ <b>Auto Run:</b> Ctrl+Space<br>"
             "📁 <b>Thư mục:</b> Alt+E (Tạo/Mở)<br>"
             "📸 <b>Chụp ảnh:</b> Alt+B (Chụp cửa sổ thêu)<br>"
-            "📋 <b>MIX:</b> Ctrl+Shift+V (Copy mã)<br>"
+            "📋 <b>MIX:</b> Ctrl+Shift+V (Copy đ.dẫn PO)<br>"
             "↻ <b>Reset:</b> Ctrl+R (Đặt lại dữ liệu)<br>"
             "👁️ <b>HUD:</b> Click mắt để ẩn/hiện chỉ số<br>"
             "📌 <b>Ghim:</b> Ghim tool luôn nổi<br>"
@@ -744,6 +744,7 @@ class MiniApp(QMainWindow):
         self._drag_pos = None
         self.last_copied = ""  # Store for screenshot naming
         self.last_screenshot_path = None # Track for Ctrl+M preview
+        self.last_detected_export_hwnd = None
         
         if getattr(sys, 'frozen', False):
             app_dir = os.path.dirname(sys.executable)
@@ -1142,7 +1143,7 @@ class MiniApp(QMainWindow):
         self.btn_mix.setFixedSize(36, 28)
         self.btn_mix.setStyleSheet("QPushButton { background: #020502; border: 1px solid #d4af37; border-radius: 4px; color: #d4af37; font-size: 8px; font-weight: bold; text-align: center; } QPushButton:hover { background: #1a1a00; }")
         self.btn_mix.clicked.connect(lambda: self.copy_data("mix"))
-        self.btn_mix.setToolTip("Copy mix (Ctrl+Shift+V)")
+        self.btn_mix.setToolTip("Copy đường dẫn PO (Ctrl+Shift+V)")
 
         # Reset Button (compact)
         self.btn_reset = QPushButton("↻")
@@ -1343,8 +1344,8 @@ class MiniApp(QMainWindow):
         # Double-click to restore
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
         
-        # Don't show by default - only when minimized
-        # self.tray_icon.show()
+        # Show tray icon immediately and keep it visible
+        self.tray_icon.show()
     
     def on_tray_icon_activated(self, reason):
         """Handle tray icon activation (click/double-click)"""
@@ -1356,13 +1357,10 @@ class MiniApp(QMainWindow):
         self.showNormal()
         self.activateWindow()
         self.raise_()
-        self.tray_icon.hide()
     
     def on_minimize_to_tray(self):
         """Minimize window to system tray"""
         self.hide()
-        self.tray_icon.show()
-        # Optional: show notification only the first time or if requested
         
     def on_instance_requested(self):
         """Called when a new instance is started"""
@@ -1379,6 +1377,15 @@ class MiniApp(QMainWindow):
                 return
         super().changeEvent(event)
 
+    def safe_trigger(self, func, *args, **kwargs):
+        """Invoke a function safely on the main GUI thread."""
+        QTimer.singleShot(0, lambda: func(*args, **kwargs))
+
+    def safe_trigger_event(self, event):
+        """Handle key event safely on main thread and filter out keypad 0"""
+        if event.name == 'insert' and not event.is_keypad:
+            self.hotkey_toggle_visibility()
+
     def setup_hotkeys(self):
         """Setup global hotkeys for the application"""
         # Prevent duplicate registration
@@ -1387,24 +1394,27 @@ class MiniApp(QMainWindow):
             return
             
         try:
-            keyboard.add_hotkey('alt+v', self.hotkey_copy_path)
-            keyboard.add_hotkey('alt+e', self.hotkey_open_folder)
-            keyboard.add_hotkey('alt+c', self.hotkey_copy_name)
-            keyboard.add_hotkey('alt+b', self.on_screenshot_v4)
-            keyboard.add_hotkey('ctrl+b', self.hotkey_run_auto)
-            keyboard.add_hotkey('ctrl+shift+b', self.hotkey_run_auto_fast)
-            keyboard.add_hotkey('ctrl+shift+v', self.hotkey_copy_mix)
-            keyboard.add_hotkey('ctrl+r', self.hotkey_reset_data)
-            keyboard.add_hotkey('ctrl+space', self.on_auto_click)  # Auto workflow
-            keyboard.add_hotkey('ctrl+x', self.on_close_ultimate_app) # Close embroidery app
-            keyboard.add_hotkey('ctrl+alt+e', self.hotkey_open_folder)
-            keyboard.add_hotkey('ctrl+m', self.hotkey_open_last_screenshot)
-            keyboard.add_hotkey('insert', self.hotkey_toggle_visibility)
-            keyboard.add_hotkey('ctrl+alt+x', self.exit_all_apps)
-            keyboard.add_hotkey('ctrl+h', self.hotkey_show_hack_menu)
-            keyboard.add_hotkey('ctrl+q', self.emergency_stop)
+            keyboard.add_hotkey('alt+v', lambda: self.safe_trigger(self.hotkey_copy_path))
+            keyboard.add_hotkey('alt+e', lambda: self.safe_trigger(self.hotkey_open_folder))
+            keyboard.add_hotkey('alt+c', lambda: self.safe_trigger(self.hotkey_copy_name))
+            keyboard.add_hotkey('alt+b', lambda: self.safe_trigger(self.on_screenshot_v4))
+            keyboard.add_hotkey('ctrl+b', lambda: self.safe_trigger(self.hotkey_run_auto))
+            keyboard.add_hotkey('ctrl+shift+b', lambda: self.safe_trigger(self.hotkey_run_auto_fast))
+            keyboard.add_hotkey('ctrl+shift+v', lambda: self.safe_trigger(self.hotkey_copy_mix))
+            keyboard.add_hotkey('ctrl+r', lambda: self.safe_trigger(self.hotkey_reset_data))
+            keyboard.add_hotkey('ctrl+space', lambda: self.safe_trigger(self.on_auto_click))  # Auto workflow
+            keyboard.add_hotkey('ctrl+x', lambda: self.safe_trigger(self.on_close_ultimate_app)) # Close embroidery app
+            keyboard.add_hotkey('ctrl+alt+e', lambda: self.safe_trigger(self.hotkey_open_folder))
+            keyboard.add_hotkey('ctrl+m', lambda: self.safe_trigger(self.hotkey_open_last_screenshot))
+            keyboard.add_hotkey('ctrl+alt+x', lambda: self.safe_trigger(self.exit_all_apps))
+            keyboard.add_hotkey('ctrl+h', lambda: self.safe_trigger(self.hotkey_show_hack_menu))
+            keyboard.add_hotkey('ctrl+q', lambda: self.safe_trigger(self.emergency_stop))
+            
+            # Use on_press_key for 'insert' key to hook events with event argument to filter out Numpad 0
+            keyboard.on_press_key('insert', lambda event: QTimer.singleShot(0, lambda: self.safe_trigger_event(event)))
+            
             self._hotkeys_registered = True
-            print("Hotkeys registered: Alt+V, Alt+E, Alt+C, Alt+B, Ctrl+B, Ctrl+Shift+B, Ctrl+Shift+V, Ctrl+R, Ctrl+Space, Ctrl+X, Ctrl+Alt+E, Ctrl+M, Insert, Ctrl+Alt+X, Ctrl+H, Ctrl+Q")
+            print("Hotkeys registered safely with main-thread marshalling. Insert key NumPad 0 filter active.")
         except Exception as e:
             print(f"Hotkey registration error: {e}")
 
@@ -1515,19 +1525,11 @@ class MiniApp(QMainWindow):
              text = base_id
                      
         elif field == "mix":
-             # ID_(Checkboxes) format
-             if base_id and base_id != "Unknown":
-                 checked = []
-                 for k in self.all_keys:
-                     if k in self.chk_groups and self.chk_groups[k].isChecked():
-                         checked.append(k)
-                 
-                 if checked:
-                     # Format: ID_(4) or ID_(4_S_F)
-                     checkbox_str = "_".join(checked)
-                     text = f"{base_id}_({checkbox_str})"
-                 else:
-                     text = base_id
+             target_folder = self._ensure_current_folder_for_hotkey()
+             if target_folder:
+                 text = target_folder
+             else:
+                 text = "-"
         
         elif field == "mode":
              text = self.current_data.get('mode', '')
@@ -2159,6 +2161,9 @@ class MiniApp(QMainWindow):
     def show_success_toast(self, message):
         toast = SuccessToast(message, self)
         toast.show()
+        # Also show OS system notification (tray message)
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            self.tray_icon.showMessage("TX Embroider Tool", message, QSystemTrayIcon.Information, 2500)
 
     def lock_checkboxes(self):
         """Black out/Lock checkboxes after auto-run"""
@@ -2172,9 +2177,43 @@ class MiniApp(QMainWindow):
             cb.setEnabled(True)
             cb.setStyleSheet("QCheckBox { color: #00f3ff; font-size: 10px; font-weight: bold; }")
 
+    def check_export_window(self):
+        if not HAS_WIN32:
+            return
+        
+        # Look for window matching the title
+        def enum_handler(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                title_lower = title.lower()
+                if "export curent" in title_lower or "export current" in title_lower or "export multi-decoration" in title_lower:
+                    results.append(hwnd)
+        
+        results = []
+        try:
+            win32gui.EnumWindows(enum_handler, results)
+        except Exception:
+            pass
+            
+        if results:
+            found_hwnd = results[0]
+            if getattr(self, 'last_detected_export_hwnd', None) != found_hwnd:
+                self.last_detected_export_hwnd = found_hwnd
+                target_folder = self._ensure_current_folder_for_hotkey()
+                if target_folder:
+                    logic.copy_to_clipboard(target_folder)
+                    self.flash_status("AUTO COPY PO", "#00ffcc")
+                    print(f"[AUTO-COPY] Export window detected ({win32gui.GetWindowText(found_hwnd)}), copied PO path: {target_folder}")
+        else:
+            self.last_detected_export_hwnd = None
+
     def update_overlay_position(self):
         """Sync info overlay with Ultimate window position - ONLY when Active"""
         if not HAS_WIN32: return
+        
+        # Detect active export window to auto-copy PO folder
+        self.check_export_window()
+        
         if not getattr(self, 'overlay_enabled', True):
             if self.info_overlay.isVisible():
                 self.info_overlay.hide()
